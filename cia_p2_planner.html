@@ -1122,7 +1122,8 @@
 
 <script>
 /* ============ CONFIG DRIVE — RESTAURATION SÉCURISÉE ============
-   - Aucun fichier Drive n'est créé automatiquement.
+   - Aucun fichier Drive n'est créé sans confirmation (première sauvegarde
+     uniquement, via une boîte de confirmation).
    - Une sauvegarde existante doit être unique avant toute écriture.
    - L'ID du fichier validé est mémorisé localement.
    - Un état local manifestement vide/neuf ne peut pas écraser une sauvegarde
@@ -1336,6 +1337,17 @@ async function readDriveBackup(file){
   return normalizePlannerState(data);
 }
 
+const DRIVE_BOUNDARY = 'cia314159265';
+function buildDriveMultipartBody(local){
+  const payload = JSON.stringify(Object.assign({}, local, {
+    savedAt: new Date().toISOString()
+  }));
+  const metadata = {name: BACKUP_FILENAME, mimeType:'application/json'};
+  return '--'+DRIVE_BOUNDARY+'\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n'+JSON.stringify(metadata)+'\r\n'+
+    '--'+DRIVE_BOUNDARY+'\r\nContent-Type: application/json\r\n\r\n'+payload+'\r\n'+
+    '--'+DRIVE_BOUNDARY+'--';
+}
+
 async function saveToDrive(){
   if(!accessToken || !googleReady){
     const ok = await connectDrive();
@@ -1353,14 +1365,38 @@ async function saveToDrive(){
       return;
     }
 
+    const local = normalizePlannerState(state);
+
+    /* Première sauvegarde : avec le scope drive.file, le planner ne voit que
+       les fichiers qu'il a lui-même créés. Il doit donc pouvoir créer le
+       fichier une première fois — uniquement après confirmation explicite. */
     if(!found.file){
-      setDriveStatus('aucune sauvegarde existante : aucune creation', false);
-      alert("Aucune sauvegarde existante n'a été trouvée. Par sécurité, le planner ne crée pas automatiquement un nouveau fichier Drive.");
+      if(isMeaningfullyEmptyState(local)){
+        setDriveStatus('rien a sauvegarder : planner vide', false);
+        alert("Aucune sauvegarde Drive n'existe encore et ton planner local est vide : rien à sauvegarder pour l'instant.");
+        return;
+      }
+      const okCreate = confirm("Aucune sauvegarde '"+BACKUP_FILENAME+"' n'existe encore dans ton Drive.\n\nCréer ce fichier maintenant avec ton état actuel ?");
+      if(!okCreate){
+        setDriveStatus('creation annulee', false);
+        return;
+      }
+      saveLocalSafetySnapshot();
+      const createResp = await gapi.client.request({
+        path:'/upload/drive/v3/files',
+        method:'POST',
+        params:{uploadType:'multipart', fields:'id,name'},
+        headers:{'Content-Type':'multipart/related; boundary='+DRIVE_BOUNDARY},
+        body:buildDriveMultipartBody(local)
+      });
+      const newId = createResp && createResp.result && createResp.result.id;
+      if(!newId) throw new Error('ID du fichier créé introuvable');
+      setSavedDriveFileId(newId);
+      setDriveStatus('sauvegarde creee', true);
       return;
     }
 
     const remote = await readDriveBackup(found.file);
-    const local = normalizePlannerState(state);
 
     /* Protection majeure : un état local vide ne peut jamais écraser
        une sauvegarde Drive non vide. */
@@ -1382,21 +1418,11 @@ async function saveToDrive(){
 
     saveLocalSafetySnapshot();
 
-    const payload = JSON.stringify(Object.assign({}, local, {
-      savedAt: new Date().toISOString()
-    }));
-    const boundary = 'cia314159265';
-    const metadata = {name: BACKUP_FILENAME, mimeType:'application/json'};
-    const body =
-      '--'+boundary+'\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n'+JSON.stringify(metadata)+'\r\n'+
-      '--'+boundary+'\r\nContent-Type: application/json\r\n\r\n'+payload+'\r\n'+
-      '--'+boundary+'--';
-
     await gapi.client.request({
       path:'/upload/drive/v3/files/'+found.file.id+'?uploadType=multipart',
       method:'PATCH',
-      headers:{'Content-Type':'multipart/related; boundary='+boundary},
-      body:body
+      headers:{'Content-Type':'multipart/related; boundary='+DRIVE_BOUNDARY},
+      body:buildDriveMultipartBody(local)
     });
 
     setDriveStatus('sauvegarde OK', true);

@@ -789,6 +789,65 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
 .tg-btn b{font-family:'DM Mono',monospace;color:var(--accent);margin-left:2px}
 .tg-btn:hover:not([disabled]){border-color:var(--accent)}.tg-btn[disabled]{opacity:.4;cursor:default}
 .tg-note{font-size:10.5px;color:var(--muted2);margin-top:8px}
+
+/* ═══════════════════════════════════════════════
+   ORDINATEUR — adaptation aux grands écrans
+   (n'affecte pas le mobile : uniquement ≥ 1100px)
+   ═══════════════════════════════════════════════ */
+@media (min-width: 1100px) {
+  :root { --sidebar-w: 300px; --topbar-h: 62px; }
+  .logo { font-size: 21px; }
+  .tb-btn { font-size: 14px; padding: 7px 16px; }
+  .session-timer-display { font-size: 13px; }
+  #home, #study-setup, #summary, #stats-page { max-width: 1240px; padding: 48px 56px; margin: 0 auto; }
+  .home-title { font-size: 46px; }
+  .home-sub, .setup-sub, .stats-sub, .summary-sub { font-size: 16px; }
+  .setup-title, .summary-title, .stats-title { font-size: 34px; }
+  .domain-card { padding: 22px 26px; }
+  .dc-title, .setup-row-label, .setup-row-val { font-size: 15px; }
+  .dc-stat { font-size: 13.5px; }
+  .btn-primary, .btn-secondary { font-size: 16px; padding: 15px; }
+  .sb-domain-name { font-size: 14.5px; }
+  .sb-domain-meta { font-size: 12px; }
+  .sb-sub-btn { font-size: 13.5px; }
+  .sb-action-btn { font-size: 14px; }
+  .study-header { padding: 16px 40px; }
+  .study-title { font-size: 16px; }
+  .study-progress-text { font-size: 13.5px; }
+  .dot-track { padding: 12px 40px; }
+  .question-area { max-width: 1120px; padding: 44px 48px; }
+  .q-num, .q-sub { font-size: 12.5px; }
+  .q-tag { font-size: 11.5px; }
+  .q-text { font-size: 19px; line-height: 1.75; margin-bottom: 28px; }
+  .q-table { font-size: 15px; }
+  .choices { gap: 10px; }
+  .choice { font-size: 16.5px; padding: 17px 22px; gap: 14px; }
+  .choice-letter { width: 30px; height: 30px; font-size: 13px; }
+  .feedback-box { padding: 22px 24px; }
+  .feedback-verdict { font-size: 16.5px; }
+  .feedback-label { font-size: 12px; }
+  .feedback-text { font-size: 15.5px; line-height: 1.7; }
+  .nav-btn { font-size: 15px; padding: 13px; }
+  .qm-btn { font-size: 12.5px; }
+  .kbd-hint { font-size: 12px; }
+  .domain-table td { font-size: 14.5px; }
+  .stat-lbl { font-size: 13.5px; }
+}
+@media (min-width: 1600px) {
+  :root { --sidebar-w: 330px; }
+  #home, #study-setup, #summary, #stats-page { max-width: 1440px; }
+  .question-area { max-width: 1320px; }
+  .q-text { font-size: 21px; }
+  .choice { font-size: 18px; padding: 19px 24px; }
+  .feedback-text { font-size: 17px; }
+  .home-title { font-size: 52px; }
+}
+/* Bouton « Creuser plus » */
+.dig-row{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:0 0 14px}
+.dig-btn{display:inline-flex;align-items:center;gap:6px;font-family:inherit;font-size:13px;font-weight:700;padding:7px 14px;border-radius:9px;border:1px solid var(--accent);background:rgba(37,99,235,.08);color:var(--accent);cursor:pointer;transition:all .2s}
+.dig-btn:hover{background:var(--accent);color:#fff}
+.dig-msg{font-size:11.5px;color:var(--muted)}
+@media (min-width:1100px){.dig-btn{font-size:14.5px;padding:9px 16px}.dig-msg{font-size:12.5px}}
 </style>
 </head>
 <body>
@@ -16349,6 +16408,7 @@ function renderQuestion() {
   if (answered) {
     html += `<div class="feedback-verdict ${answered.correct?'correct':'wrong'}">${answered.correct ? '✓ Correct !' : '✗ Incorrect — la bonne réponse est ' + ansOf(q)}</div>`;
     html += ovControlHtml(q, 'study');
+    html += '<div class="dig-row"><button class="dig-btn" onclick="creuserPlus()" title="Copie la question + réponses et lance une recherche web">🔎 Creuser plus</button><span class="dig-msg" id="dig-msg"></span></div>';
     q.choices.forEach(c => {
       const isAns = c.letter === ansOf(q);
       html += `<div class="feedback-item">
@@ -16371,6 +16431,27 @@ function renderQuestion() {
 }
 
 function formatQText(text) { return text.replace(/\n/g, '<br>'); }
+
+// ─── CREUSER PLUS : copie la question + les réponses et lance une recherche web ───
+// Moteur de recherche : modifie DIG_URL si besoin (ex. 'https://duckduckgo.com/?q=', 'https://www.bing.com/search?q=').
+const DIG_URL = 'https://www.google.com/search?q=';
+function _digPlain(h) { const d = document.createElement('div'); d.innerHTML = String(h == null ? '' : h).replace(/<br\s*\/?>/gi, '\n'); return (d.textContent || '').trim(); }
+function _digCopy(txt) {
+  if (navigator.clipboard && navigator.clipboard.writeText) return navigator.clipboard.writeText(txt).catch(() => _digCopyOld(txt));
+  return Promise.resolve(_digCopyOld(txt));
+}
+function _digCopyOld(txt) {
+  const ta = document.createElement('textarea'); ta.value = txt; ta.style.position = 'fixed'; ta.style.opacity = '0';
+  document.body.appendChild(ta); ta.select(); try { document.execCommand('copy'); } catch (e) {} ta.remove();
+}
+function creuserPlus() {
+  const q = state.studyQueue[state.studyIdx];
+  if (!q) return;
+  const t = _digPlain(q.text) + '\n' + q.choices.map(c => c.letter + '. ' + _digPlain(c.text)).join('\n');
+  _digCopy(t).then(() => { const m = document.getElementById('dig-msg'); if (m) m.textContent = '✓ Question + réponses copiées — recherche ouverte dans un nouvel onglet'; });
+  window.open(DIG_URL + encodeURIComponent(t.replace(/\s+/g, ' ')), '_blank', 'noopener');
+}
+
 
 function chooseAnswer(letter) {
   if (state.studyAnswers[state.studyIdx]) return;
